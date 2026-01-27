@@ -4,21 +4,26 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.preferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Context.logDataStore: DataStore<Preferences> by preferencesDataStore(name = "future_log_entries")
+// DataStore 定義（Context 拡張は1箇所のみ）
+private val Context.logDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "future_log_entries"
+)
 
-private val logEntriesKey = preferencesKey<String>("log_entries_json")
+// String 用の Preferences Key（← ここが今回の修正ポイント）
+private val logEntriesKey = stringPreferencesKey("log_entries_json")
 
 object LogRepository {
+
     fun logs(context: Context): Flow<List<LogEntry>> {
         return context.logDataStore.data.map { preferences ->
-            val json = preferences[logEntriesKey].orEmpty()
+            val json = preferences[logEntriesKey] ?: ""
             parseEntries(json)
         }
     }
@@ -26,15 +31,23 @@ object LogRepository {
     suspend fun addLog(context: Context, text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
+
         context.logDataStore.edit { preferences ->
-            val current = parseEntries(preferences[logEntriesKey].orEmpty()).toMutableList()
-            current.add(0, LogEntry(text = trimmed, timestamp = System.currentTimeMillis()))
+            val current = parseEntries(preferences[logEntriesKey] ?: "").toMutableList()
+            current.add(
+                0,
+                LogEntry(
+                    text = trimmed,
+                    timestamp = System.currentTimeMillis()
+                )
+            )
             preferences[logEntriesKey] = serializeEntries(current)
         }
     }
 
     private fun parseEntries(json: String): List<LogEntry> {
         if (json.isBlank()) return emptyList()
+
         return runCatching {
             val array = JSONArray(json)
             List(array.length()) { index ->
