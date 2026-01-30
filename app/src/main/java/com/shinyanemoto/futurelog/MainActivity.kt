@@ -110,6 +110,7 @@ fun FutureLogApp() {
 @Composable
 private fun MonthlyLogList(logs: List<LogEntry>, modifier: Modifier = Modifier) {
     val grouped = logs
+        .sortedByDescending { it.timestamp }
         .groupBy { entry ->
             YearMonth.from(Instant.ofEpochMilli(entry.timestamp).atZone(ZoneId.systemDefault()))
         }
