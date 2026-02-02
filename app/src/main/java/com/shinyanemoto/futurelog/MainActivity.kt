@@ -24,18 +24,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shinyanemoto.futurelog.ui.theme.FutureLogTheme
 import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,9 +53,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun FutureLogApp() {
-    val context = LocalContext.current
-    val logs by LogRepository.logs(context).collectAsState(initial = emptyList())
-    val scope = rememberCoroutineScope()
+    val viewModel: LogViewModel = viewModel()
+    val uiState by viewModel.uiState.collectAsState()
     var inputText by remember { mutableStateOf("") }
 
     Column(
@@ -87,10 +84,7 @@ fun FutureLogApp() {
             )
             Button(
                 onClick = {
-                    val current = inputText
-                    scope.launch {
-                        LogRepository.addLog(context, current)
-                    }
+                    viewModel.addLog(inputText)
                     inputText = ""
                 }
             ) {
@@ -101,22 +95,18 @@ fun FutureLogApp() {
         Spacer(modifier = Modifier.height(24.dp))
 
         MonthlyLogList(
-            logs = logs,
+            sections = uiState.groupedLogs,
             modifier = Modifier.weight(1f)
         )
     }
 }
 
 @Composable
-private fun MonthlyLogList(logs: List<LogEntry>, modifier: Modifier = Modifier) {
-    val grouped = logs
-        .sortedByDescending { it.timestamp }
-        .groupBy { entry ->
-            YearMonth.from(Instant.ofEpochMilli(entry.timestamp).atZone(ZoneId.systemDefault()))
-        }
-        .toSortedMap(compareByDescending { it })
-
-    if (grouped.isEmpty()) {
+private fun MonthlyLogList(
+    sections: List<MonthlyLogSection>,
+    modifier: Modifier = Modifier
+) {
+    if (sections.isEmpty()) {
         Text(
             text = "まだログがありません。",
             style = MaterialTheme.typography.bodyLarge
@@ -129,17 +119,17 @@ private fun MonthlyLogList(logs: List<LogEntry>, modifier: Modifier = Modifier) 
         contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        grouped.forEach { (month, entries) ->
-            item(key = month) {
+        sections.forEach { section ->
+            item(key = section.month) {
                 Column {
                     Text(
-                        text = month.format(DateTimeFormatter.ofPattern("yyyy年 M月")),
+                        text = section.month.format(DateTimeFormatter.ofPattern("yyyy年 M月")),
                         style = MaterialTheme.typography.titleLarge
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
-            items(entries, key = { "${it.timestamp}-${it.text}" }) { entry ->
+            items(section.entries, key = { "${it.timestamp}-${it.text}" }) { entry ->
                 Text(
                     text = "・${entry.text}",
                     style = MaterialTheme.typography.bodyLarge,
@@ -160,7 +150,13 @@ fun DefaultPreview() {
                 LogEntry("歯医者に行った", Instant.now().minusSeconds(86_400).toEpochMilli()),
                 LogEntry("お風呂の洗剤を買った", Instant.now().toEpochMilli())
             )
-            MonthlyLogList(logs = previewLogs)
+            val previewSections = listOf(
+                MonthlyLogSection(
+                    month = YearMonth.from(Instant.now().atZone(ZoneId.systemDefault())),
+                    entries = previewLogs
+                )
+            )
+            MonthlyLogList(sections = previewSections)
         }
     }
 }
