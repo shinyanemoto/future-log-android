@@ -3,6 +3,7 @@ package com.shinyanemoto.futurelog
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -14,11 +15,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +37,8 @@ import java.time.Instant
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+
+private val createdDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +61,7 @@ fun FutureLogApp() {
     val viewModel: LogViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsState()
     var inputText by remember { mutableStateOf("") }
+    var selectedEntry by remember { mutableStateOf<LogEntry?>(null) }
 
     Column(
         modifier = Modifier
@@ -96,7 +102,33 @@ fun FutureLogApp() {
 
         MonthlyLogList(
             sections = uiState.groupedLogs,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+            onEntryClick = { selectedEntry = it }
+        )
+    }
+
+    selectedEntry?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { selectedEntry = null },
+            title = { Text(text = entry.text) },
+            text = {
+                Text(
+                    text = if (entry.createdAt > 0) {
+                        val createdDate = Instant.ofEpochMilli(entry.createdAt)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                            .format(createdDateFormatter)
+                        "登録日: $createdDate"
+                    } else {
+                        "登録日: 不明"
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedEntry = null }) {
+                    Text("閉じる")
+                }
+            }
         )
     }
 }
@@ -104,7 +136,8 @@ fun FutureLogApp() {
 @Composable
 private fun MonthlyLogList(
     sections: List<MonthlyLogSection>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onEntryClick: (LogEntry) -> Unit
 ) {
     if (sections.isEmpty()) {
         Text(
@@ -129,11 +162,13 @@ private fun MonthlyLogList(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
-            items(section.entries, key = { "${it.timestamp}-${it.text}" }) { entry ->
+            items(section.entries, key = { "${it.id}-${it.timestamp}-${it.text}" }) { entry ->
                 Text(
                     text = "・${entry.text}",
                     style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clickable { onEntryClick(entry) }
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }
@@ -147,8 +182,8 @@ fun DefaultPreview() {
     FutureLogTheme {
         Column(modifier = Modifier.padding(24.dp)) {
             val previewLogs = listOf(
-                LogEntry("歯医者に行った", Instant.now().minusSeconds(86_400).toEpochMilli()),
-                LogEntry("お風呂の洗剤を買った", Instant.now().toEpochMilli())
+                LogEntry(text = "歯医者に行った", timestamp = Instant.now().minusSeconds(86_400).toEpochMilli()),
+                LogEntry(text = "お風呂の洗剤を買った", timestamp = Instant.now().toEpochMilli())
             )
             val previewSections = listOf(
                 MonthlyLogSection(
@@ -156,7 +191,7 @@ fun DefaultPreview() {
                     entries = previewLogs
                 )
             )
-            MonthlyLogList(sections = previewSections)
+            MonthlyLogList(sections = previewSections, onEntryClick = {})
         }
     }
 }
