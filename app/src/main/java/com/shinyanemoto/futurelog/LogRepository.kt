@@ -19,7 +19,8 @@ data class LogEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val text: String,
     val timestamp: Long,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val remindAt: Long? = null
 )
 
 @Dao
@@ -29,9 +30,12 @@ interface LogDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entry: LogEntry)
+
+    @Query("UPDATE logs SET remindAt = :remindAt WHERE id = :id")
+    suspend fun updateReminder(id: Long, remindAt: Long?)
 }
 
-@Database(entities = [LogEntry::class], version = 2, exportSchema = false)
+@Database(entities = [LogEntry::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun logDao(): LogDao
 
@@ -41,6 +45,12 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE logs ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE logs ADD COLUMN remindAt INTEGER")
             }
         }
 
@@ -54,7 +64,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -66,7 +76,7 @@ object LogRepository {
     fun logs(context: Context): Flow<List<LogEntry>> =
         AppDatabase.getInstance(context).logDao().observeLogs()
 
-    suspend fun addLog(context: Context, text: String) {
+    suspend fun addLog(context: Context, text: String, remindAt: Long?) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
 
@@ -75,8 +85,13 @@ object LogRepository {
             LogEntry(
                 text = trimmed,
                 timestamp = now,
-                createdAt = now
+                createdAt = now,
+                remindAt = remindAt
             )
         )
+    }
+
+    suspend fun updateReminder(context: Context, id: Long, remindAt: Long?) {
+        AppDatabase.getInstance(context).logDao().updateReminder(id, remindAt)
     }
 }

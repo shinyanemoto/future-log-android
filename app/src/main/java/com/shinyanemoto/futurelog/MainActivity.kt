@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,6 +62,9 @@ fun FutureLogApp() {
     val viewModel: LogViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsState()
     var inputText by remember { mutableStateOf("") }
+    var selectedPreset by remember { mutableStateOf<ReminderOffset?>(null) }
+    var customAmount by remember { mutableStateOf("") }
+    var customUnit by remember { mutableStateOf(ReminderUnit.MONTHS) }
     var selectedEntry by remember { mutableStateOf<LogEntry?>(null) }
 
     Column(
@@ -90,13 +94,34 @@ fun FutureLogApp() {
             )
             Button(
                 onClick = {
-                    viewModel.addLog(inputText)
+                    val customReminder = customAmount.toIntOrNull()?.takeIf { it > 0 }?.let {
+                        ReminderOffset(amount = it, unit = customUnit)
+                    }
+                    viewModel.addLog(inputText, customReminder ?: selectedPreset)
                     inputText = ""
+                    selectedPreset = null
+                    customAmount = ""
                 }
             ) {
                 Text(text = "追加")
             }
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        ReminderInput(
+            selectedPreset = selectedPreset,
+            onPresetSelected = {
+                selectedPreset = it
+                if (it != null) customAmount = ""
+            },
+            customAmount = customAmount,
+            onCustomAmountChange = {
+                customAmount = it
+                if (it.isNotBlank()) selectedPreset = null
+            },
+            customUnit = customUnit,
+            onCustomUnitChange = { customUnit = it }
+        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -112,17 +137,47 @@ fun FutureLogApp() {
             onDismissRequest = { selectedEntry = null },
             title = { Text(text = entry.text) },
             text = {
-                Text(
-                    text = if (entry.createdAt > 0) {
-                        val createdDate = Instant.ofEpochMilli(entry.createdAt)
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalDate()
-                            .format(createdDateFormatter)
-                        "登録日: $createdDate"
-                    } else {
-                        "登録日: 不明"
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = if (entry.createdAt > 0) {
+                            val createdDate = Instant.ofEpochMilli(entry.createdAt)
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate()
+                                .format(createdDateFormatter)
+                            "登録日: $createdDate"
+                        } else {
+                            "登録日: 不明"
+                        }
+                    )
+                    Text(
+                        text = entry.remindAt?.let {
+                            val remindDate = Instant.ofEpochMilli(it)
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate()
+                                .format(createdDateFormatter)
+                            "リマインド日: $remindDate"
+                        } ?: "リマインド: OFF"
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(1, 3, 6, 12).forEach { month ->
+                            OutlinedButton(onClick = {
+                                viewModel.updateReminder(
+                                    entry,
+                                    ReminderOffset(month, ReminderUnit.MONTHS)
+                                )
+                                selectedEntry = null
+                            }) {
+                                Text("${month}か月")
+                            }
+                        }
                     }
-                )
+                    TextButton(onClick = {
+                        viewModel.updateReminder(entry, null)
+                        selectedEntry = null
+                    }) {
+                        Text("リマインドを解除")
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = { selectedEntry = null }) {
@@ -172,6 +227,76 @@ private fun MonthlyLogList(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }
+            if (section.recommendedEntries.isNotEmpty()) {
+                item(key = "recommend-${section.month}") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "おすすめ",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                items(section.recommendedEntries, key = { "recommend-${it.id}-${section.month}" }) { entry ->
+                    Text(
+                        text = "・${entry.text}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clickable { onEntryClick(entry) }
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderInput(
+    selectedPreset: ReminderOffset?,
+    onPresetSelected: (ReminderOffset?) -> Unit,
+    customAmount: String,
+    onCustomAmountChange: (String) -> Unit,
+    customUnit: ReminderUnit,
+    onCustomUnitChange: (ReminderUnit) -> Unit
+) {
+    val presets = listOf(
+        null,
+        ReminderOffset(1, ReminderUnit.MONTHS),
+        ReminderOffset(3, ReminderUnit.MONTHS),
+        ReminderOffset(6, ReminderUnit.MONTHS),
+        ReminderOffset(12, ReminderUnit.MONTHS)
+    )
+    Text(text = "リマインド")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        presets.forEach { preset ->
+            OutlinedButton(onClick = { onPresetSelected(preset) }) {
+                val label = when {
+                    preset == null -> "なし"
+                    preset.unit == ReminderUnit.MONTHS -> "${preset.amount}か月"
+                    else -> "${preset.amount}日"
+                }
+                Text(text = if (selectedPreset == preset) "✓$label" else label)
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedTextField(
+            value = customAmount,
+            onValueChange = onCustomAmountChange,
+            modifier = Modifier.weight(1f),
+            label = { Text("カスタム") }
+        )
+        OutlinedButton(onClick = { onCustomUnitChange(ReminderUnit.MONTHS) }) {
+            Text(if (customUnit == ReminderUnit.MONTHS) "✓月" else "月")
+        }
+        OutlinedButton(onClick = { onCustomUnitChange(ReminderUnit.DAYS) }) {
+            Text(if (customUnit == ReminderUnit.DAYS) "✓日" else "日")
         }
     }
 }
@@ -188,7 +313,8 @@ fun DefaultPreview() {
             val previewSections = listOf(
                 MonthlyLogSection(
                     month = YearMonth.from(Instant.now().atZone(ZoneId.systemDefault())),
-                    entries = previewLogs
+                    entries = previewLogs,
+                    recommendedEntries = previewLogs
                 )
             )
             MonthlyLogList(sections = previewSections, onEntryClick = {})
