@@ -9,6 +9,7 @@ import java.time.YearMonth
 import java.time.ZoneId
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -20,14 +21,18 @@ data class MonthlyLogSection(
 )
 
 data class LogUiState(
-    val groupedLogs: List<MonthlyLogSection> = emptyList()
+    val groupedLogs: List<MonthlyLogSection> = emptyList(),
+    val defaultReminder: ReminderOffset? = null
 )
 
 class LogViewModel(application: Application) : AndroidViewModel(application) {
     private val logsFlow = LogRepository.logs(application)
+    private val settingsRepository = AppSettingsRepository(application)
+    private val defaultReminderFlow = settingsRepository.defaultReminder
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val uiState: StateFlow<LogUiState> = logsFlow
-        .map { logs ->
+        .combine(defaultReminderFlow) { logs, defaultReminder ->
             val grouped = logs
                 .sortedByDescending { it.timestamp }
                 .groupBy { entry ->
@@ -55,7 +60,10 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            LogUiState(groupedLogs = sections)
+            LogUiState(
+                groupedLogs = sections,
+                defaultReminder = defaultReminder
+            )
         }
         .stateIn(
             viewModelScope,
@@ -63,9 +71,9 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
             LogUiState()
         )
 
-    fun addLog(text: String, reminderOffset: ReminderOffset?) {
+    fun addLog(text: String) {
         viewModelScope.launch {
-            val remindAt = reminderOffset?.let {
+            val remindAt = defaultReminderFlow.value?.let {
                 calculateRemindAt(createdAt = System.currentTimeMillis(), offset = it)
             }
             LogRepository.addLog(getApplication(), text, remindAt)
@@ -77,6 +85,12 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
             val base = if (entry.createdAt > 0) entry.createdAt else System.currentTimeMillis()
             val remindAt = reminderOffset?.let { calculateRemindAt(base, it) }
             LogRepository.updateReminder(getApplication(), entry.id, remindAt)
+        }
+    }
+
+    fun updateDefaultReminder(reminderOffset: ReminderOffset?) {
+        viewModelScope.launch {
+            settingsRepository.setDefaultReminder(reminderOffset)
         }
     }
 

@@ -6,6 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +17,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -40,6 +46,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val createdDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy/MM/dd")
+private val presetReminderMonths = listOf(1, 3, 6, 12)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,31 +65,44 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun FutureLogApp() {
     val viewModel: LogViewModel = viewModel()
     val uiState by viewModel.uiState.collectAsState()
     var inputText by remember { mutableStateOf("") }
-    var selectedPreset by remember { mutableStateOf<ReminderOffset?>(null) }
-    var customAmount by remember { mutableStateOf("") }
-    var customUnit by remember { mutableStateOf(ReminderUnit.MONTHS) }
     var selectedEntry by remember { mutableStateOf<LogEntry?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(24.dp)
     ) {
-        Text(
-            text = "Future Log",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "月ごとのログ",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.secondary
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Future Log",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "月ごとのログ",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            IconButton(onClick = { showSettings = true }) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = "設定"
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -94,34 +114,13 @@ fun FutureLogApp() {
             )
             Button(
                 onClick = {
-                    val customReminder = customAmount.toIntOrNull()?.takeIf { it > 0 }?.let {
-                        ReminderOffset(amount = it, unit = customUnit)
-                    }
-                    viewModel.addLog(inputText, customReminder ?: selectedPreset)
+                    viewModel.addLog(inputText)
                     inputText = ""
-                    selectedPreset = null
-                    customAmount = ""
                 }
             ) {
                 Text(text = "追加")
             }
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-        ReminderInput(
-            selectedPreset = selectedPreset,
-            onPresetSelected = {
-                selectedPreset = it
-                if (it != null) customAmount = ""
-            },
-            customAmount = customAmount,
-            onCustomAmountChange = {
-                customAmount = it
-                if (it.isNotBlank()) selectedPreset = null
-            },
-            customUnit = customUnit,
-            onCustomUnitChange = { customUnit = it }
-        )
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -129,6 +128,17 @@ fun FutureLogApp() {
             sections = uiState.groupedLogs,
             modifier = Modifier.weight(1f),
             onEntryClick = { selectedEntry = it }
+        )
+    }
+
+    if (showSettings) {
+        SettingsDialog(
+            defaultReminder = uiState.defaultReminder,
+            onDismiss = { showSettings = false },
+            onSave = { reminder ->
+                viewModel.updateDefaultReminder(reminder)
+                showSettings = false
+            }
         )
     }
 
@@ -158,8 +168,11 @@ fun FutureLogApp() {
                             "リマインド日: $remindDate"
                         } ?: "リマインド: OFF"
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(1, 3, 6, 12).forEach { month ->
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presetReminderMonths.forEach { month ->
                             OutlinedButton(onClick = {
                                 viewModel.updateReminder(
                                     entry,
@@ -186,6 +199,82 @@ fun FutureLogApp() {
             }
         )
     }
+}
+
+@Composable
+private fun SettingsDialog(
+    defaultReminder: ReminderOffset?,
+    onDismiss: () -> Unit,
+    onSave: (ReminderOffset?) -> Unit
+) {
+    var selectedPreset by remember(defaultReminder) {
+        mutableStateOf(defaultReminder.takeIf { it != null && it.isPresetMonthReminder() })
+    }
+    var customAmount by remember(defaultReminder) {
+        mutableStateOf(
+            defaultReminder
+                ?.takeUnless { it.isPresetMonthReminder() }
+                ?.amount
+                ?.toString()
+                .orEmpty()
+        )
+    }
+    var customUnit by remember(defaultReminder) {
+        mutableStateOf(
+            defaultReminder
+                ?.takeUnless { it.isPresetMonthReminder() }
+                ?.unit
+                ?: ReminderUnit.MONTHS
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("設定") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "新規ログの既定リマインド",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "現在: ${formatReminderLabel(defaultReminder)}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                ReminderSettingsEditor(
+                    selectedPreset = selectedPreset,
+                    onPresetSelected = {
+                        selectedPreset = it
+                        customAmount = ""
+                    },
+                    customAmount = customAmount,
+                    onCustomAmountChange = {
+                        customAmount = it
+                        if (it.isNotBlank()) selectedPreset = null
+                    },
+                    customUnit = customUnit,
+                    onCustomUnitChange = { customUnit = it }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val customReminder = customAmount.toIntOrNull()?.takeIf { it > 0 }?.let {
+                        ReminderOffset(amount = it, unit = customUnit)
+                    }
+                    onSave(customReminder ?: selectedPreset)
+                }
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("キャンセル")
+            }
+        }
+    )
 }
 
 @Composable
@@ -253,7 +342,8 @@ private fun MonthlyLogList(
 }
 
 @Composable
-private fun ReminderInput(
+@OptIn(ExperimentalLayoutApi::class)
+private fun ReminderSettingsEditor(
     selectedPreset: ReminderOffset?,
     onPresetSelected: (ReminderOffset?) -> Unit,
     customAmount: String,
@@ -268,8 +358,11 @@ private fun ReminderInput(
         ReminderOffset(6, ReminderUnit.MONTHS),
         ReminderOffset(12, ReminderUnit.MONTHS)
     )
-    Text(text = "リマインド")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         presets.forEach { preset ->
             OutlinedButton(onClick = { onPresetSelected(preset) }) {
                 val label = when {
@@ -281,7 +374,6 @@ private fun ReminderInput(
             }
         }
     }
-    Spacer(modifier = Modifier.height(8.dp))
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -298,6 +390,18 @@ private fun ReminderInput(
         OutlinedButton(onClick = { onCustomUnitChange(ReminderUnit.DAYS) }) {
             Text(if (customUnit == ReminderUnit.DAYS) "✓日" else "日")
         }
+    }
+}
+
+private fun ReminderOffset.isPresetMonthReminder(): Boolean =
+    unit == ReminderUnit.MONTHS && amount in presetReminderMonths
+
+private fun formatReminderLabel(reminder: ReminderOffset?): String {
+    if (reminder == null) return "なし"
+
+    return when (reminder.unit) {
+        ReminderUnit.MONTHS -> "${reminder.amount}か月"
+        ReminderUnit.DAYS -> "${reminder.amount}日"
     }
 }
 
