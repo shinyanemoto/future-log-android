@@ -88,6 +88,12 @@ class LogViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateMemo(entry: LogEntry, memo: String) {
+        viewModelScope.launch {
+            LogRepository.updateMemo(getApplication(), entry.id, memo)
+        }
+    }
+
     fun updateDefaultReminder(reminderOffset: ReminderOffset?) {
         viewModelScope.launch {
             settingsRepository.setDefaultReminder(reminderOffset)

@@ -143,6 +143,14 @@ fun FutureLogApp() {
     }
 
     selectedEntry?.let { entry ->
+        var memoDraft by remember(entry.id, entry.memo) { mutableStateOf(entry.memo) }
+        val saveMemoIfChanged = {
+            val trimmedMemo = memoDraft.trim()
+            if (trimmedMemo != entry.memo) {
+                viewModel.updateMemo(entry, trimmedMemo)
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { selectedEntry = null },
             title = { Text(text = entry.text) },
@@ -168,12 +176,20 @@ fun FutureLogApp() {
                             "リマインド日: $remindDate"
                         } ?: "リマインド: OFF"
                     )
+                    OutlinedTextField(
+                        value = memoDraft,
+                        onValueChange = { memoDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        label = { Text("メモ") }
+                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         presetReminderMonths.forEach { month ->
                             OutlinedButton(onClick = {
+                                saveMemoIfChanged()
                                 viewModel.updateReminder(
                                     entry,
                                     ReminderOffset(month, ReminderUnit.MONTHS)
@@ -185,6 +201,7 @@ fun FutureLogApp() {
                         }
                     }
                     TextButton(onClick = {
+                        saveMemoIfChanged()
                         viewModel.updateReminder(entry, null)
                         selectedEntry = null
                     }) {
@@ -193,6 +210,14 @@ fun FutureLogApp() {
                 }
             },
             confirmButton = {
+                TextButton(onClick = {
+                    saveMemoIfChanged()
+                    selectedEntry = null
+                }) {
+                    Text("保存して閉じる")
+                }
+            },
+            dismissButton = {
                 TextButton(onClick = { selectedEntry = null }) {
                     Text("閉じる")
                 }

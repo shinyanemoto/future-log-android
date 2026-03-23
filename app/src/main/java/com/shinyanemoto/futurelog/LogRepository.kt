@@ -20,7 +20,8 @@ data class LogEntry(
     val text: String,
     val timestamp: Long,
     val createdAt: Long = System.currentTimeMillis(),
-    val remindAt: Long? = null
+    val remindAt: Long? = null,
+    val memo: String = ""
 )
 
 @Dao
@@ -33,9 +34,12 @@ interface LogDao {
 
     @Query("UPDATE logs SET remindAt = :remindAt WHERE id = :id")
     suspend fun updateReminder(id: Long, remindAt: Long?)
+
+    @Query("UPDATE logs SET memo = :memo WHERE id = :id")
+    suspend fun updateMemo(id: Long, memo: String)
 }
 
-@Database(entities = [LogEntry::class], version = 3, exportSchema = false)
+@Database(entities = [LogEntry::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun logDao(): LogDao
 
@@ -54,6 +58,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE logs ADD COLUMN memo TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -64,7 +74,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
@@ -93,5 +103,9 @@ object LogRepository {
 
     suspend fun updateReminder(context: Context, id: Long, remindAt: Long?) {
         AppDatabase.getInstance(context).logDao().updateReminder(id, remindAt)
+    }
+
+    suspend fun updateMemo(context: Context, id: Long, memo: String) {
+        AppDatabase.getInstance(context).logDao().updateMemo(id, memo.trim())
     }
 }
